@@ -1,6 +1,3 @@
-
-
-# Press the green button in the gutter to run the script.
 from src.Coil import Coil
 from src.MatchCreator import MatchCreator
 
@@ -84,10 +81,43 @@ if __name__ == '__main__':
     groups_second_line: list[list[tuple[Coil, int, tuple[int, int]]]] = []  # group is an ordered list of matches
     groups_third_line: list[list[tuple[Coil, int, tuple[int, int]]]] = []  # group is an ordered list of matches
 
+    group = []
     for i in range(len(first_line_sorted)):
-        if i != len(first_line_sorted) - 1:
-            pass
-            #print(check_adjacent_matches(first_line_sorted[i], first_line_sorted[i+1]))
+        if i != len(first_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
+            if len(group) == 0:              # group has at least one match
+                group.append(first_line_sorted[i])
+            if check_adjacent_matches(first_line_sorted[i], first_line_sorted[i+1]):
+                group.append(first_line_sorted[i+1])
+            else:
+                groups_first_line.append(group)
+                group = [first_line_sorted[i+1]]
+
+    group = []          # same now for other lines
+    for i in range(len(second_line_sorted)):
+        if i != len(second_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
+            if len(group) == 0:  # group has at least one match
+                group.append(second_line_sorted[i])
+            if check_adjacent_matches(second_line_sorted[i], second_line_sorted[i + 1]):
+                group.append(second_line_sorted[i + 1])
+            else:
+                groups_second_line.append(group)
+                group = [second_line_sorted[i + 1]]
+
+    group = []
+    for i in range(len(third_line_sorted)):
+        if i != len(third_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
+            if len(group) == 0:  # group has at least one match
+                group.append(third_line_sorted[i])
+            if check_adjacent_matches(third_line_sorted[i], third_line_sorted[i + 1]):
+                group.append(third_line_sorted[i + 1])
+            else:
+                groups_third_line.append(group)
+                group = [third_line_sorted[i + 1]]
+
+
+
+
+
 
 
 
