@@ -1,5 +1,8 @@
 from src.Coil import Coil
 from src.MatchCreator import MatchCreator
+import numpy as np
+import gurobipy as gp
+
 
 def check_adjacent_matches(match1: tuple, match2: tuple):
     """
@@ -42,6 +45,30 @@ def check_adjacent_matches(match1: tuple, match2: tuple):
 
     return output
 
+def compute_A_p_q_k(groups: dict[int, ]) -> list[np.ndarray]:
+    """
+    Calculate matrix A of compatibility
+
+    :param: dict[]
+
+    :return: list[np.ndarray]
+        A[k][p, q] = 1 if matches in position p and q in group k are incompatible, 0 otherwise
+        p, q real positions from 1... because of dummy initial and end pos
+    """
+    A = []
+
+    for k in groups.keys():
+
+        group_length = len(groups[k])
+        group_matrix = np.zeros((group_length, group_length))
+        for p in range(group_length):
+            for q in range(group_length):
+                if not check_adjacent_matches(groups[k][p], groups[k][q]):
+                    group_matrix[p][q] = 1
+        A.append(group_matrix)
+    return A
+
+
 if __name__ == '__main__':
     list_of_coils: list[Coil] = []
 
@@ -81,18 +108,32 @@ if __name__ == '__main__':
     groups_second_line: list[list[tuple[Coil, int, tuple[int, int]]]] = []  # group is an ordered list of matches
     groups_third_line: list[list[tuple[Coil, int, tuple[int, int]]]] = []  # group is an ordered list of matches
 
+    ################################################################################################
+    # For usage in MIP all groups has be indexed together as strands (lines) are not included in MIP
+    ################################################################################################
+    groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]] = dict()  # key index used in MIP, value group
+
+    group_index: int = 0
     group = []
     for i in range(len(first_line_sorted)):
         if i != len(first_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
-            if len(group) == 0:              # group has at least one match
+            if len(group) == 0:  # group has at least one match
                 group.append(first_line_sorted[i])
-            if check_adjacent_matches(first_line_sorted[i], first_line_sorted[i+1]):
-                group.append(first_line_sorted[i+1])
+            if check_adjacent_matches(first_line_sorted[i], first_line_sorted[i + 1]):
+                group.append(first_line_sorted[i + 1])
             else:
                 groups_first_line.append(group)
-                group = [first_line_sorted[i+1]]
+                groups[group_index] = group
+                group_index += 1
+                group = [first_line_sorted[i + 1]]
+        else:
+            groups_first_line.append(group)
+            groups[group_index] = group
+            last_index_first_line = group_index
+            group_index += 1
 
-    group = []          # same now for other lines
+
+    group = []  # same now for other lines, indexing continued
     for i in range(len(second_line_sorted)):
         if i != len(second_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
             if len(group) == 0:  # group has at least one match
@@ -101,9 +142,18 @@ if __name__ == '__main__':
                 group.append(second_line_sorted[i + 1])
             else:
                 groups_second_line.append(group)
+                groups[group_index] = group
+                group_index += 1
                 group = [second_line_sorted[i + 1]]
+        else:
+            groups_second_line.append(group)
+            groups[group_index] = group
+            last_index_second_line = group_index
+            group_index += 1
+
 
     group = []
+
     for i in range(len(third_line_sorted)):
         if i != len(third_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
             if len(group) == 0:  # group has at least one match
@@ -112,13 +162,82 @@ if __name__ == '__main__':
                 group.append(third_line_sorted[i + 1])
             else:
                 groups_third_line.append(group)
+                groups[group_index] = group
+                group_index += 1
                 group = [third_line_sorted[i + 1]]
+        else:
+            groups_second_line.append(group)
+            groups[group_index] = group
+            last_index_third_line = group_index
 
 
+    """
+    ********************************************************************************************
+    Here is the problem spot. According to the groups created before they all have exactly 11 matches.
+    This is due to the fact, that all coils have speed range of 500 - 600. So takein a tep of 10 for speed
+    we would have a jump like that:
+    
+    Coil ID: 360,length: 22020width: 73thickness: 0.10276276348898936 mode: (670, 600)
+    ---------------
+    Coil ID: 360,length: 22020width: 73thickness: 0.10276276348898936 mode: (680, 500)
+    
+    That means that matches can not be produced without stringer and a new group is formed.
+    So every group consists of 11 matches, that all relate to the same coil!
+    
+    MIP is not able to fix that which leads to bad results 
+    ********************************************************************************************
+    """
+    for gr in groups[0]:
+        print(str(gr[0]) + " mode: " + str(gr[2]))
+    print("---------------")
+    for gr in groups[1]:
+        print(str(gr[0]) + " mode: " + str(gr[2]))
 
+    A = compute_A_p_q_k(groups)
+    print(A[0])  # matrix A for 1st groups
 
+    """
+    # compute C_k as list of jobs in k-th group without repetition
+    C = self.compute_C_k(list_of_all_groups)
 
+    # compute D_i as dict for each job with value list of group ids in list_of_all_groups
+    D = self.compute_D_i(list_of_all_groups)
 
+    m = gp.Model("GOPH")
 
+    # number of groups
+    K = len(A)
+    N = len(list(self.jobs_dict.keys()))
+    assert K == len(list_of_all_groups)
 
+    Y = []
+    for k, group in enumerate(A):
+        n = A[k].shape[0]
+        Y.append(m.addVars(n, n, vtype=GRB.BINARY, name="y"))
 
+    Z = m.addVars(K, vtype=GRB.BINARY, name="z")
+
+    X = m.addVars(N, K, vtype=GRB.BINARY, name="x")
+
+    m.setObjective(sum(sum(sum(A[k][p, q] * Y[k][p, q] for q in range(len(list_of_all_groups[k])) if q > p)
+                           for p in range(len(list_of_all_groups[k]))) for k in range(K)) +
+                   sum(Z[k] for k in range(K)))
+
+    m.addConstrs(sum(Y[k][p, q] for q in range(1, len(list_of_all_groups[k]) - 1) if q > p) ==
+                 sum(Y[k][p, q] for q in range(1, len(list_of_all_groups[k]) - 1) if q < p) for k in range(K)
+                 for p in range(len(list_of_all_groups[k])))
+
+    m.addConstrs(sum(Y[k][0, q] for q in range(1, len(list_of_all_groups[k]))) == 1 for k in range(K))
+
+    m.addConstrs(sum(Y[k][p, len(list_of_all_groups[k]) - 1] for p in range(1, len(list_of_all_groups[k]) - 1)) == 1
+                 for k in range(K))
+    m.addConstrs(X[i - 1, k] == sum(sum(Y[k][p, q] for q in range(1, len(list_of_all_groups[k]) - 1) if q > p)
+                                    for p in self.E_i_k(i, k, D, list_of_all_groups)) for i in C[k])
+
+    m.addConstrs(X[i - 1, k] <= Z[k] for k in range(K) for i in C[k])
+
+    m.addConstrs(sum(X[i, k] for k in D[i + 1]) == 1 for i in range(N))
+    m.optimize()
+
+    result = m.getObjective().getValue()
+"""
