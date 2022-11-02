@@ -33,7 +33,6 @@ def check_adjacent_matches(match1: tuple, match2: tuple):
     speed_threshold = 10
 
     if abs(coil1.thickness - coil2.thickness) > thickness_threshold:
-        print("thickness")
         output = False
     if abs(coil1.width - coil2.width) > width_threshold:
         output = False
@@ -100,9 +99,9 @@ if __name__ == '__main__':
         1. sort the matches on each line according to some criteria
         2. iterate through the sorted list and check the compatibility of adjacent matches
     """
-    first_line_sorted = sorted(mc.get_matches_on_line(1), key=lambda coil: coil[0].thickness)  # change thickness
-    second_line_sorted = sorted(mc.get_matches_on_line(2), key=lambda coil: coil[0].thickness)  # change thickness
-    third_line_sorted = sorted(mc.get_matches_on_line(3), key=lambda coil: coil[0].thickness)  # change thickness for
+    first_line_sorted = sorted(mc.get_matches_on_line(1), key=lambda coil: coil[2][1])  # change thickness
+    second_line_sorted = sorted(mc.get_matches_on_line(2), key=lambda coil: coil[2][1])  # change thickness
+    third_line_sorted = sorted(mc.get_matches_on_line(3), key=lambda coil: coil[2][1])  # change thickness for
 
     groups_first_line: list[list[tuple[Coil, int, tuple[int, int]]]] = []  # group is an ordered list of matches
     groups_second_line: list[list[tuple[Coil, int, tuple[int, int]]]] = []  # group is an ordered list of matches
