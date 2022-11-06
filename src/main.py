@@ -44,11 +44,11 @@ def check_adjacent_matches(match1: tuple, match2: tuple):
 
     return output
 
-def compute_A_p_q_k(groups: dict[int, ]) -> list[np.ndarray]:
+def compute_A_p_q_k(groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]) -> list[np.ndarray]:
     """
     Calculate matrix A of compatibility
 
-    :param: dict[]
+    :param groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]
 
     :return: list[np.ndarray]
         A[k][p, q] = 1 if matches in position p and q in group k are incompatible, 0 otherwise
@@ -66,6 +66,22 @@ def compute_A_p_q_k(groups: dict[int, ]) -> list[np.ndarray]:
                     group_matrix[p][q] = 1
         A.append(group_matrix)
     return A
+
+def compute_C_k(groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]) -> dict[int, list[int]]:
+    """
+    Calculate dict C, each key corresponds to a group, value represents
+    the set of coils in group M_k (without repetition)
+
+    :param groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]
+    :return:
+    """
+    C = dict()
+    for key, value in groups.items():
+        coils_without_rep = set()
+        for match in value:
+            coils_without_rep.add(match[0].coil_id)
+        C[key] = list(coils_without_rep)
+    return C
 
 
 if __name__ == '__main__':
@@ -193,7 +209,8 @@ if __name__ == '__main__':
         print(str(gr[0]) + " mode: " + str(gr[2]))
 
     A = compute_A_p_q_k(groups)
-    print(A[0])  # matrix A for 1st groups
+    C = compute_C_k(groups)
+    print(C[0])  # matrix A for 1st groups
 
     """
     # compute C_k as list of jobs in k-th group without repetition
