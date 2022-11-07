@@ -1,7 +1,8 @@
 from src.Coil import Coil
 from src.MatchCreator import MatchCreator
-import numpy as np
 import gurobipy as gp
+import numpy as np
+from gurobipy import GRB
 
 
 def check_adjacent_matches(match1: tuple, match2: tuple):
@@ -44,6 +45,7 @@ def check_adjacent_matches(match1: tuple, match2: tuple):
 
     return output
 
+
 def compute_A_p_q_k(groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]) -> list[np.ndarray]:
     """
     Calculate matrix A of compatibility
@@ -67,25 +69,82 @@ def compute_A_p_q_k(groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]) 
         A.append(group_matrix)
     return A
 
-def compute_C_k(groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]) -> dict[int, list[int]]:
+
+def compute_C_k(groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]], dict_of_coils: dict[int, int]) \
+        -> dict[int, list[int]]:
     """
     Calculate dict C, each key corresponds to a group, value represents
     the set of coils in group M_k (without repetition)
 
     :param groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]
-    :return:
+    :param dict_of_coils: dict[int, int]
+
+    :return: dict[int, list[int]]
+    dict of pairs group_id -> list of coils in the group
     """
     C = dict()
+
     for key, value in groups.items():
         coils_without_rep = set()
         for match in value:
-            coils_without_rep.add(match[0].coil_id)
+            coil_id = match[0].coil_id
+            mip_translated_coil_id = list(dict_of_coils.values()).index(coil_id)
+            coils_without_rep.add(mip_translated_coil_id)
         C[key] = list(coils_without_rep)
     return C
 
 
+def compute_D(dict_of_coils: dict[int, int], C: dict[int, list[int]]) -> dict[int, list[int]]:
+    """
+    Calculate dict D, each key represents coil id (as in input) and value is list of group_ids
+    where the coil is contained
+
+    :param dict_of_coils: dict[int, int]
+        list of coil objects
+    :param C: dict[int, list[int]]
+         as computed in the function above (each key corresponds to a group, value represents
+    the set of coils in group M_k (without repetition))
+    :return: dict[int, list[int]]
+    """
+
+    D = dict()
+    for c in dict_of_coils.keys():
+        D[c] = []
+    for key, value in C.items():
+        for mip_translated_coil_id in value:
+            D[mip_translated_coil_id].append(key)
+    return D
+
+def E_i_k(k: int, i: int, groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]], dict_of_coils: dict[int, int])\
+                                -> list[int]:
+    """
+    Computes E_i_k from MIP. E_i_k is a list of positions of matches related to coil i (index as in MIP)
+    i group k
+
+    :param k: int
+        group id
+    :param i: int
+        mip translated coil id
+    :param groups: dict[int, list[tuple[Coil, int, tuple[int, int]]]]
+    :param dict_of_coils: dict[int, int]
+
+    :return: list[int]
+    """
+    out = []
+    for position, match in enumerate(groups[k]):
+        coil_id = match[0].coil_id
+        for key, value in dict_of_coils.items():
+            if value == coil_id:
+                mip_translated_coil_id = key
+                break
+        if mip_translated_coil_id == i:
+            out.append(position)
+    return out
+
+
 if __name__ == '__main__':
     list_of_coils: list[Coil] = []
+
 
     # reading input file
     file_name: str = 'data_coils.csv'
@@ -103,6 +162,13 @@ if __name__ == '__main__':
                                       int(float(coil_info[3])), int(float(coil_info[4])), int(float(coil_info[5])),
                                       int(float(coil_info[6])), int(float(coil_info[8]))))
 
+    """
+    For MIP we need numeration from 0, this is not always the case with input data.
+    list_of_coils has the data from file, dict_of_coils is translation MIP_id -> input coil_id
+    """
+    dict_of_coils = dict()
+    for i, coil in enumerate(list_of_coils):
+        dict_of_coils[i] = coil.coil_id
     """
     rules for available strands(lines), a tuple for each line in the form 
                                     (min_allowed_width (cm), max_allowed_width (cm)) 
@@ -147,7 +213,6 @@ if __name__ == '__main__':
             last_index_first_line = group_index
             group_index += 1
 
-
     group = []  # same now for other lines, indexing continued
     for i in range(len(second_line_sorted)):
         if i != len(second_line_sorted) - 1:  # exclude the last item to avoid integer out of range error in next step
@@ -165,7 +230,6 @@ if __name__ == '__main__':
             groups[group_index] = group
             last_index_second_line = group_index
             group_index += 1
-
 
     group = []
 
@@ -185,75 +249,50 @@ if __name__ == '__main__':
             groups[group_index] = group
             last_index_third_line = group_index
 
-
-    """
-    ********************************************************************************************
-    Here is the problem spot. According to the groups created before they all have exactly 11 matches.
-    This is due to the fact, that all coils have speed range of 500 - 600. So takein a tep of 10 for speed
-    we would have a jump like that:
-    
-    Coil ID: 360,length: 22020width: 73thickness: 0.10276276348898936 mode: (670, 600)
-    ---------------
-    Coil ID: 360,length: 22020width: 73thickness: 0.10276276348898936 mode: (680, 500)
-    
-    That means that matches can not be produced without stringer and a new group is formed.
-    So every group consists of 11 matches, that all relate to the same coil!
-    
-    MIP is not able to fix that which leads to bad results 
-    ********************************************************************************************
-    """
-    for gr in groups[0]:
-        print(str(gr[0]) + " mode: " + str(gr[2]))
-    print("---------------")
-    for gr in groups[1]:
-        print(str(gr[0]) + " mode: " + str(gr[2]))
-
+    """ Compute parameters needed for MIP """
     A = compute_A_p_q_k(groups)
-    C = compute_C_k(groups)
-    print(C[0])  # matrix A for 1st groups
+    C = compute_C_k(groups, dict_of_coils)
+    D = compute_D(dict_of_coils, C)
 
-    """
-    # compute C_k as list of jobs in k-th group without repetition
-    C = self.compute_C_k(list_of_all_groups)
+    K = len(A)  # number of groups
+    N = len(list(D))    # number of coils
 
-    # compute D_i as dict for each job with value list of group ids in list_of_all_groups
-    D = self.compute_D_i(list_of_all_groups)
+
+
+
 
     m = gp.Model("GOPH")
 
-    # number of groups
-    K = len(A)
-    N = len(list(self.jobs_dict.keys()))
-    assert K == len(list_of_all_groups)
 
     Y = []
     for k, group in enumerate(A):
         n = A[k].shape[0]
-        Y.append(m.addVars(n, n, vtype=GRB.BINARY, name="y"))
+        Y.append(m.addVars(n + 1, n + 1, vtype=GRB.BINARY, name="y"))   # one starting and one ending dummy position
 
     Z = m.addVars(K, vtype=GRB.BINARY, name="z")
 
     X = m.addVars(N, K, vtype=GRB.BINARY, name="x")
 
-    m.setObjective(sum(sum(sum(A[k][p, q] * Y[k][p, q] for q in range(len(list_of_all_groups[k])) if q > p)
-                           for p in range(len(list_of_all_groups[k]))) for k in range(K)) +
+    m.setObjective(sum(sum(sum(A[k][p, q] * Y[k][p, q] for q in range(len(groups[k])) if q > p)
+                           for p in range(len(groups[k]))) for k in range(K)) +
                    sum(Z[k] for k in range(K)))
 
-    m.addConstrs(sum(Y[k][p, q] for q in range(1, len(list_of_all_groups[k]) - 1) if q > p) ==
-                 sum(Y[k][p, q] for q in range(1, len(list_of_all_groups[k]) - 1) if q < p) for k in range(K)
-                 for p in range(len(list_of_all_groups[k])))
+    m.addConstrs(sum(Y[k][p, q] for q in range(1, len(groups[k]) - 1) if q > p) ==
+                 sum(Y[k][p, q] for q in range(1, len(groups[k]) - 1) if q < p) for k in range(K)
+                 for p in range(len(groups[k])))
 
-    m.addConstrs(sum(Y[k][0, q] for q in range(1, len(list_of_all_groups[k]))) == 1 for k in range(K))
+    m.addConstrs(sum(Y[k][0, q] for q in range(1, len(groups[k]) + 1)) == 1 for k in range(K))
 
-    m.addConstrs(sum(Y[k][p, len(list_of_all_groups[k]) - 1] for p in range(1, len(list_of_all_groups[k]) - 1)) == 1
+    m.addConstrs(sum(Y[k][p, len(groups[k])] for p in range(len(groups[k]))) == 1
                  for k in range(K))
-    m.addConstrs(X[i - 1, k] == sum(sum(Y[k][p, q] for q in range(1, len(list_of_all_groups[k]) - 1) if q > p)
-                                    for p in self.E_i_k(i, k, D, list_of_all_groups)) for i in C[k])
+    m.addConstrs(X[i, k] == sum(sum(Y[k][p, q] for q in range(len(groups[k])) if q > p)
+                                    for p in E_i_k(k, i, groups, dict_of_coils)) for i in C[k]
+                                    for k in range(K))
 
-    m.addConstrs(X[i - 1, k] <= Z[k] for k in range(K) for i in C[k])
+    m.addConstrs(X[i, k] <= Z[k] for k in range(K) for i in C[k])
 
-    m.addConstrs(sum(X[i, k] for k in D[i + 1]) == 1 for i in range(N))
+    m.addConstrs(sum(X[i, k] for k in D[i]) == 1 for i in range(N))
     m.optimize()
 
     result = m.getObjective().getValue()
-"""
+
